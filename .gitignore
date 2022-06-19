@@ -66,4 +66,4 @@ src/configs_local
 .ipynb_checkpoints
 
 #apex
-env/apex
+env/apex/

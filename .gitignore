@@ -61,3 +61,9 @@ ext
 data
 output
 src/configs_local
+
+#colab
+.ipynb_checkpoints
+
+#apex
+env/apex

@@ -34,6 +34,9 @@ tmp*.py
 *.tar
 *.zip
 
+#sys
+*.ini
+
 # Logs and databases #
 ######################
 *.log
@@ -63,7 +66,9 @@ output
 src/configs_local
 
 #colab
-.ipynb_checkpoints
+*.ipynb_checkpoints
+*.ipynb
 
 #apex
-env/apex/
+env/apex/*
+env/apex

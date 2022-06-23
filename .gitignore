@@ -33,6 +33,7 @@ tmp*.py
 *.rar
 *.tar
 *.zip
+*.ckpt
 
 #sys
 *.ini

@@ -532,6 +532,7 @@ def start_training(cfg):
                     "train/grad_norm", grad_norm, global_step)
             TB_LOGGER.step()
 
+            """@@This part may need change FOR CLIP encoder is freezed !!!"""
             # Check if there is None grad
             none_grads = [
                 p[0] for p in model.named_parameters()

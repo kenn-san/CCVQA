@@ -66,3 +66,4 @@ src/configs_local
 */__pycache__
 *.ini
 *.ipynb
+env/apex

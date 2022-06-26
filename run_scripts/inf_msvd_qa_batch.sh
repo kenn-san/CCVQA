@@ -12,7 +12,7 @@ IMG_DB='data/msvd_qa/videos'
 #Run multiple steps (10 times once)
 #
 
-for (( STEP=2450; STEP<=6650; STEP+=350 ))
+for (( STEP=1300; STEP<=1700; STEP+=400 ))
 do 
    echo "Step:$STEP"
    horovodrun -np 1 python src/tasks/run_video_qa.py \
@@ -21,7 +21,7 @@ do
       --inference_model_step $STEP \
       --inference_txt_db $TXT_DB \
       --inference_img_db $IMG_DB \
-      --inference_batch_size 32 \
-      --output_dir output/downstreams/msvd_qa/private/20220624000000 \
+      --inference_batch_size 64 \
+      --output_dir output/downstreams/msvd_qa/private/20220624000000ft \
       --config $CONFIG_PATH
 done

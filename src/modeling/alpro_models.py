@@ -649,9 +649,7 @@ class AlproForSequenceClassification(AlproBaseModel):
         self.CLIP_encoder, preprocess = clip.load("ViT-B/32") #no_need for preprocessing the image
 
         self.CLIP_adapter = nn.Sequential(
-            nn.Linear(512 ,
-            config.hidden_size * 2),
-            nn.Linear(config.hidden_size * 2, config.hidden_size)
+            nn.Linear(512, config.hidden_size)
         )
 
         """Freezing CLIP weight as default"""

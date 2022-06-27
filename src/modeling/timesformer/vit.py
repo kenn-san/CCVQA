@@ -320,9 +320,9 @@ class VisionTransformer(nn.Module):
 
     def forward_features(self, x, return_all_tokens=False):
         B = x.shape[0]
-        x, T, W = self.patch_embed(x)
-        cls_tokens = self.cls_token.expand(x.size(0), -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)
+        x, T, W = self.patch_embed(x) # ([96, 196, 768]), 16, 14
+        cls_tokens = self.cls_token.expand(x.size(0), -1, -1) # ([1, 1, 768]) -> ([96, 1, 768])
+        x = torch.cat((cls_tokens, x), dim=1) # ([96, 197, 768])
 
         # resizing the positional embeddings in case they don't match the input at inference
         if x.size(1) != self.pos_embed.size(1):
@@ -358,7 +358,7 @@ class VisionTransformer(nn.Module):
                 x = x + self.time_embed
             x = self.time_drop(x)
             x = rearrange(x, '(b n) t m -> b (n t) m', b=B, t=T)
-            x = torch.cat((cls_tokens, x), dim=1)
+            x = torch.cat((cls_tokens, x), dim=1) # ([6, 16*196+1 = 3137, 768])
 
         # Attention blocks
         for blk in self.blocks:

@@ -16,6 +16,7 @@ import torch.utils.checkpoint
 from src.modeling.timesformer.vit_utils import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from src.modeling.timesformer.helpers import load_pretrained, load_pretrained_kinetics, load_pretrained_imagenet, load_pretrained_CLIP_ViT
 from src.modeling.timesformer.vit_utils import DropPath, to_2tuple, trunc_normal_
+## import src.modeling.clip as clip
 
 from src.modeling.xbert import BertAttention
 
@@ -249,6 +250,13 @@ class VisionTransformer(nn.Module):
                  cross_attention_config=None, use_grad_checkpointing=False):
         super().__init__()
 
+        ##self.CLIP_encoder, preprocess = clip.load("ViT-B/16") #no_need for preprocessing the image
+        ##self.CLIP_adapter =Mlp(in_features=512, hidden_features=int(512*mlp_ratio), out_features=embed_dim, act_layer=nn.GELU)
+
+        ##"""Freezing CLIP weight as default"""
+        ##for param in self.CLIP_encoder.parameters():
+        ##    param.requires_grad = False
+
         self.attention_type = attention_type
         self.depth = depth
         self.dropout = nn.Dropout(dropout)
@@ -319,6 +327,15 @@ class VisionTransformer(nn.Module):
             self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_features(self, x, return_all_tokens=False):
+
+
+        ## Extract CLIP features
+        ## CLIP/Vit asks for (b * t, c, h, w) as input.
+        ## b, c, t, h, w = x.shape
+        ## x = rearrange(x, 'b c t h w -> (b t) c h w')
+        ## CLIP_embeds = self.CLIP_encoder.encode_image_features(x).float()[:, 1:] #([96, 197-1 = 196, 768])
+        ## x = x.view(-1, t, c, h, w).transpose(1, 2)
+
         B = x.shape[0]
         x, T, W = self.patch_embed(x) # ([96, 196, 768]), 16, 14
         cls_tokens = self.cls_token.expand(x.size(0), -1, -1) # ([1, 1, 768]) -> ([96, 1, 768])

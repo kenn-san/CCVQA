@@ -646,7 +646,7 @@ class AlproForSequenceClassification(AlproBaseModel):
         )
 
         """Add CLIP as a new encoder"""
-        self.CLIP_encoder, preprocess = clip.load("ViT-B/16") #no_need for preprocessing the image
+        self.CLIP_encoder, preprocess = clip.load("ViT-B/32") #no_need for preprocessing the image
 
         ##self.CLIP_adapter = nn.Sequential(
         ##    nn.Linear(512, config.hidden_size)
@@ -678,24 +678,25 @@ class AlproForSequenceClassification(AlproBaseModel):
         # timeSformer asks for (b, c, t, h, w) as input.
         visual_inputs = visual_inputs.transpose(1, 2)
         
-        image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([7, 197, 768])
+        image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([bz, 197, 768])
         
         ## Extract CLIP features
         ## CLIP/Vit asks for (b * t, c, h, w) as input.
         visual_inputs = visual_inputs.transpose(1, 2).view(-1, c, h, w)
 
-        image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs).float() # ([7, 197, 768]) float32 
-        ##image_CLIP_embeds = image_CLIP_embeds.view(-1, 16, 768) # ([7, 16, 768])
-        ##image_CLIP_embeds = self.CLIP_adapter(image_CLIP_embeds) # ([7*16 = 112, 768])
-
+        image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs)[:, 1:].float() # ([bz, patchz**2, 768]) float32 
+        image_CLIP_embeds = image_CLIP_embeds.view(-1, 16, 49, 768) # ([bz, 16, 197, 768])
+        image_CLIP_embeds = image_CLIP_embeds.mean(dim=1) # ([bz, 16, 768])
+        ##image_CLIP_embeds = self.CLIP_adapter(image_CLIP_embeds) # ([bz*16, 768])
+        
         """Visual Feature Manipulation"""
-        image_CLIP_atts = torch.ones(image_CLIP_embeds.size()[:-1],dtype=torch.long).to(device) # ([7, 197]) long all 1
+        image_CLIP_atts = torch.ones(image_CLIP_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, patchz**2 + 1]) long all 1
 
-        image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device) # ([7, 197]) long all 1
+        image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, 197]) long all 1
         
         # forward cross-encoder
-        attention_mask = torch.cat([text_input_mask, image_CLIP_atts ,image_atts], dim=1) # ([7, 40+197 @+197@ = 237])
-        embedding_output = torch.cat([text_embeds, image_CLIP_embeds ,image_embeds], dim=1) # ([7, 40+197 @+197@ = 237, 768])
+        attention_mask = torch.cat([text_input_mask, image_CLIP_atts ,image_atts], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237])
+        embedding_output = torch.cat([text_embeds, image_CLIP_embeds ,image_embeds], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237, 768])
 
         attention_mask = torch.cat([text_input_mask ,image_atts], dim=1)
         embedding_output = torch.cat([text_embeds ,image_embeds], dim=1)

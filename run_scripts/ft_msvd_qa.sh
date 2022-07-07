@@ -7,4 +7,4 @@ CONFIG_PATH='config_release/msvd_qa.json'
 
 horovodrun -np 1 python src/tasks/run_video_qa.py \
       --config $CONFIG_PATH \
-      --output_dir output/downstreams/msvd_qa/private/20220701fusion
+      --output_dir output/downstreams/msvd_qa/private/20220704fusion

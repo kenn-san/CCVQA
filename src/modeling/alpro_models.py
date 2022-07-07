@@ -646,12 +646,10 @@ class AlproForSequenceClassification(AlproBaseModel):
         )
 
         """Add CLIP as a new encoder"""
-        self.CLIP_encoder, preprocess = clip.load("ViT-B/32") #no_need for preprocessing the image
+        self.CLIP_encoder, preprocess = clip.load("ViT-B/16") #no_need for preprocessing the image
 
-        ##self.CLIP_adapter = nn.Sequential(
-        ##    nn.Linear(512, config.hidden_size)
-        ##)
-
+        self.CLIP_norm = nn.LayerNorm(768)
+        self.ADD_norm = nn.LayerNorm(768)
         ##"""Freezing CLIP weight as default"""
         ##for param in self.CLIP_encoder.parameters():
         ##    param.requires_grad = False
@@ -665,13 +663,13 @@ class AlproForSequenceClassification(AlproBaseModel):
         device = visual_inputs.device
 
         # forward text
-        text_input_mask = batch['text_input_mask'] # ([7, 40])
+        text_input_mask = batch['text_input_mask'] # ([bz, 40])
         text_output = self.text_encoder(batch['text_input_ids'],
                                         attention_mask=text_input_mask,
                                         return_dict=True,
                                         mode='text'
                                         )
-        text_embeds = text_output.last_hidden_state # ([7, 40, 768])
+        text_embeds = text_output.last_hidden_state # ([bz, 40, 768])
 
         # forward visual
         b, t, c, h, w = visual_inputs.shape
@@ -683,23 +681,47 @@ class AlproForSequenceClassification(AlproBaseModel):
         ## Extract CLIP features
         ## CLIP/Vit asks for (b * t, c, h, w) as input.
         visual_inputs = visual_inputs.transpose(1, 2).view(-1, c, h, w)
+        image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs).float() # ([bz * 16, patchz**2, 768]) float32 
 
-        image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs)[:, 1:].float() # ([bz, patchz**2, 768]) float32 
-        image_CLIP_embeds = image_CLIP_embeds.view(-1, 16, 49, 768) # ([bz, 16, 197, 768])
-        image_CLIP_embeds = image_CLIP_embeds.mean(dim=1) # ([bz, 16, 768])
-        ##image_CLIP_embeds = self.CLIP_adapter(image_CLIP_embeds) # ([bz*16, 768])
-        
+        """Board casting text (CUDA out of mem)""" 
+        """
+        text_input_mask = text_input_mask.repeat(8, 1).view( b, -1) # ([bz * 16, 40]) -> ([bz , 16*40])
+        text_embeds = text_embeds.repeat(8, 1, 1).view( b, -1, 768)  # ([bz * 16, 40, 768]) -> ([bz , 16*40, 768])
+        CLIP_cls_tokens = image_CLIP_embeds[:, 0, :].unsqueeze(1)
+        image_CLIP_embeds = self.CLIP_norm(image_CLIP_embeds[:, 1:])
+        image_CLIP_embeds = torch.cat([CLIP_cls_tokens, image_CLIP_embeds], dim = 1).view(b, -1, 768)
+        """
+
+        """Average Pooling"""
+        """
+        ## Simple pooling on temporal dim
+        image_CLIP_embeds = image_CLIP_embeds.view(-1, 16, 197, 768) # ([bz, 16, 197, 768])
+        image_CLIP_embeds = image_CLIP_embeds.mean(dim=1) # ([bz, 197, 768])
+        CLIP_cls_tokens = image_CLIP_embeds[:, 0, :].unsqueeze(1)
+        image_CLIP_embeds = self.CLIP_norm(image_CLIP_embeds[:, 1:])
+        image_CLIP_embeds = torch.cat([CLIP_cls_tokens, image_CLIP_embeds], dim = 1)  # ([bz, 197, 768])
+        """
+
+        """Add and Norm with Original Features"""
+        image_CLIP_embeds = image_CLIP_embeds.view(-1, 16, 197, 768) # ([bz, 16, 197, 768])
+        image_CLIP_embeds = image_CLIP_embeds.mean(dim=1) # ([bz, 197, 768])
+        CLIP_cls_tokens = image_CLIP_embeds[:, 0, :].unsqueeze(1)
+        image_CLIP_embeds = self.CLIP_norm(image_CLIP_embeds[:, 1:])
+        image_CLIP_embeds = torch.cat([CLIP_cls_tokens, image_CLIP_embeds], dim = 1)  # ([bz, 197, 768])
+
+        image_embeds = self.ADD_norm(image_embeds + image_CLIP_embeds)
+
         """Visual Feature Manipulation"""
         image_CLIP_atts = torch.ones(image_CLIP_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, patchz**2 + 1]) long all 1
-
         image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, 197]) long all 1
-        
-        # forward cross-encoder
-        attention_mask = torch.cat([text_input_mask, image_CLIP_atts ,image_atts], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237])
-        embedding_output = torch.cat([text_embeds, image_CLIP_embeds ,image_embeds], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237, 768])
 
-        attention_mask = torch.cat([text_input_mask ,image_atts], dim=1)
-        embedding_output = torch.cat([text_embeds ,image_embeds], dim=1)
+        # forward cross-encoder
+        attention_mask = torch.cat([text_input_mask, image_atts], dim=1)
+        embedding_output = torch.cat([text_embeds, image_embeds], dim=1) 
+
+        #attention_mask = torch.cat([text_input_mask, image_CLIP_atts ,image_atts], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237])
+        #embedding_output = torch.cat([text_embeds, image_CLIP_embeds ,image_embeds], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237, 768])
+
 
         output = self.text_encoder(encoder_embeds=embedding_output,
                                 attention_mask=attention_mask,

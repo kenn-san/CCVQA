@@ -136,6 +136,20 @@ def load_state_dict_with_pos_embed_resizing(model, loaded_state_dict_or_path,
     LOGGER.info(f"In total {len(diff_keys)}, {sorted(diff_keys)}")
     LOGGER.info("Keys in model and loaded, but shape mismatched:")
     LOGGER.info(f"In total {len(mismatched_shape_keys)}, {sorted(mismatched_shape_keys)}")
+    
+    """Show frozen status"""
+    active_params = []
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            active_params.append(name)
+    LOGGER.info(f"Params need to be finetuned {len(active_params)}, {sorted(active_params)}")
+
+    freeze_params = []
+    for name, param in model.named_parameters():
+        if param.requires_grad is False:
+            freeze_params.append(name)
+    LOGGER.info(f"Params do not need to be finetuned {len(freeze_params)}")
+
     model.load_state_dict(toload, strict=strict)
 
 def compare_dict_difference(dict1, dict2, dict1_name="dict1",

@@ -56,6 +56,8 @@ from transformers.modeling_utils import (
 from transformers.utils import logging
 from transformers.models.bert.configuration_bert import BertConfig
 
+from src.utils.misc import init_modules
+
 
 logger = logging.get_logger(__name__)
 
@@ -437,9 +439,27 @@ class BertOutput(nn.Module):
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
 
+"""Self-defined Adapter"""
+class Adapter(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.dowm_sample = nn.Linear(config.hidden_size, config.hidden_size // 2) # default downsample 2 times // Follow github example
+        self.non_lin = F.gelu
+        self.up_sample = nn.Linear(config.hidden_size // 2, config.hidden_size)
+
+        init_modules(self.modules(), w_init="xavier_uniform")
+
+    def forward(self, hidden_states):
+        res = hidden_states #(bz, squence, hidden_size @usually 768@)
+        outputs = self.dowm_sample(hidden_states)
+        outputs = self.non_lin(outputs)
+        outputs = self.up_sample(outputs)
+        outputs = res + outputs
+        return outputs
 
 class BertLayer(nn.Module):
-    def __init__(self, config, layer_num):
+    def __init__(self, config, layer_num, with_adpater=False):
         super().__init__()
         self.config = config
         self.chunk_size_feed_forward = config.chunk_size_feed_forward
@@ -453,6 +473,22 @@ class BertLayer(nn.Module):
             self.crossattention = BertAttention(config, is_cross_attention=True)
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
+
+        self.with_adapter = with_adpater
+        if with_adpater:
+            """Adding adapter"""
+            self.adapter_after_attention = Adapter(config)
+            self.adapter_after_intermediate = Adapter(config)
+
+            """Freeze attention & feedforwar layer Weights"""
+            for param in self.attention.self.parameters():
+                param.requires_grad = False
+            for param in self.intermediate.parameters():
+                param.requires_grad = False
+        else:
+            """Freeze All Weights for text encoder"""
+            for param in self.parameters():
+                param.requires_grad = False
 
     def forward(
         self,
@@ -474,6 +510,9 @@ class BertLayer(nn.Module):
             past_key_value=self_attn_past_key_value,
         )
         attention_output = self_attention_outputs[0]
+        
+        if self.with_adapter:
+            attention_output = self.adapter_after_attention(attention_output)
 
         outputs = self_attention_outputs[1:-1]
         present_key_value = self_attention_outputs[-1]
@@ -507,6 +546,10 @@ class BertLayer(nn.Module):
         layer_output = apply_chunking_to_forward(
             self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, attention_output
         )
+
+        if self.with_adapter:
+            layer_output = self.adapter_after_intermediate(layer_output)
+
         outputs = (layer_output,) + outputs
 
         outputs = outputs + (present_key_value,)
@@ -523,7 +566,9 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.layer = nn.ModuleList([BertLayer(config,i) for i in range(config.num_hidden_layers)])
+        self.layer = nn.ModuleList([BertLayer(config,i) for i in range(config.fusion_layer)] + 
+                                   [BertLayer(config,i,with_adpater=True) for i in range(config.fusion_layer,config.num_hidden_layers)])
+        #self.layer = nn.ModuleList([BertLayer(config,i) for i in range(config.num_hidden_layers)])
 
     def forward(
         self,

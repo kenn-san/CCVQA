@@ -646,14 +646,28 @@ class AlproForSequenceClassification(AlproBaseModel):
         )
 
         """Add CLIP as a new encoder"""
+        """
         self.CLIP_encoder, preprocess = clip.load("ViT-B/16") #no_need for preprocessing the image
 
         self.CLIP_norm = nn.LayerNorm(768)
         self.ADD_norm = nn.LayerNorm(768)
-        ##"""Freezing CLIP weight as default"""
+        
+        ##Freezing CLIP weight as default
         ##for param in self.CLIP_encoder.parameters():
         ##    param.requires_grad = False
+        """
+
+        """Freezing TimeSformer Weights as default ?"""
+        ##for param in self.visual_encoder.parameters():
+            ##param.requires_grad = False
         
+        """Let CLIP final linear be a projection layer ?"""
+        """Maybe Adding an Adapter ?"""
+        """Using Bert Pretrained only ?"""
+
+        """1. Adding a simple linear layer for testing 2022/7/7"""
+        self.vision_test_proj = nn.Linear(config.hidden_size, config.hidden_size)
+        nn.init.xavier_uniform_(self.vision_test_proj.weight, gain=1.0)
 
     # def forward(self, image, text, targets, alpha=0, train=True):
     def forward(self, batch):
@@ -677,11 +691,11 @@ class AlproForSequenceClassification(AlproBaseModel):
         visual_inputs = visual_inputs.transpose(1, 2)
         
         image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([bz, 197, 768])
-        
+        image_embeds = self.vision_test_proj(image_embeds)
         ## Extract CLIP features
         ## CLIP/Vit asks for (b * t, c, h, w) as input.
-        visual_inputs = visual_inputs.transpose(1, 2).view(-1, c, h, w)
-        image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs).float() # ([bz * 16, patchz**2, 768]) float32 
+        ##visual_inputs = visual_inputs.transpose(1, 2).view(-1, c, h, w)
+        ##image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs).float() # ([bz * 16, patchz**2, 768]) float32 
 
         """Board casting text (CUDA out of mem)""" 
         """
@@ -703,6 +717,7 @@ class AlproForSequenceClassification(AlproBaseModel):
         """
 
         """Add and Norm with Original Features"""
+        """
         image_CLIP_embeds = image_CLIP_embeds.view(-1, 16, 197, 768) # ([bz, 16, 197, 768])
         image_CLIP_embeds = image_CLIP_embeds.mean(dim=1) # ([bz, 197, 768])
         CLIP_cls_tokens = image_CLIP_embeds[:, 0, :].unsqueeze(1)
@@ -710,17 +725,15 @@ class AlproForSequenceClassification(AlproBaseModel):
         image_CLIP_embeds = torch.cat([CLIP_cls_tokens, image_CLIP_embeds], dim = 1)  # ([bz, 197, 768])
 
         image_embeds = self.ADD_norm(image_embeds + image_CLIP_embeds)
-
+        """
+        ##image_CLIP_atts = torch.ones(image_CLIP_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, patchz**2 + 1]) long all 1
         """Visual Feature Manipulation"""
-        image_CLIP_atts = torch.ones(image_CLIP_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, patchz**2 + 1]) long all 1
+        
         image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, 197]) long all 1
 
         # forward cross-encoder
         attention_mask = torch.cat([text_input_mask, image_atts], dim=1)
         embedding_output = torch.cat([text_embeds, image_embeds], dim=1) 
-
-        #attention_mask = torch.cat([text_input_mask, image_CLIP_atts ,image_atts], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237])
-        #embedding_output = torch.cat([text_embeds, image_CLIP_embeds ,image_embeds], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237, 768])
 
 
         output = self.text_encoder(encoder_embeds=embedding_output,
@@ -759,6 +772,8 @@ class AlproForSequenceClassification(AlproBaseModel):
         visual_inputs = visual_inputs.transpose(1, 2)
 
         image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True)
+        image_embeds = self.vision_test_proj(image_embeds)
+        print('GG')
         image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device)
 
         # forward cross-encoder

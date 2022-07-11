@@ -648,26 +648,24 @@ class AlproForSequenceClassification(AlproBaseModel):
         """Add CLIP as a new encoder"""
         """
         self.CLIP_encoder, preprocess = clip.load("ViT-B/16") #no_need for preprocessing the image
-
         self.CLIP_norm = nn.LayerNorm(768)
         self.ADD_norm = nn.LayerNorm(768)
-        
+        """
         ##Freezing CLIP weight as default
         ##for param in self.CLIP_encoder.parameters():
         ##    param.requires_grad = False
-        """
+        
 
         """Freezing TimeSformer Weights as default ?"""
         ##for param in self.visual_encoder.parameters():
-            ##param.requires_grad = False
+        ##    param.requires_grad = False
         
         """Let CLIP final linear be a projection layer ?"""
-        """Maybe Adding an Adapter ?"""
         """Using Bert Pretrained only ?"""
 
         """1. Adding a simple linear layer for testing 2022/7/7"""
-        self.vision_test_proj = nn.Linear(config.hidden_size, config.hidden_size)
-        nn.init.xavier_uniform_(self.vision_test_proj.weight, gain=1.0)
+        ##self.vision_test_proj = nn.Linear(config.hidden_size, config.hidden_size)
+        ##nn.init.xavier_uniform_(self.vision_test_proj.weight, gain=1.0)
 
     # def forward(self, image, text, targets, alpha=0, train=True):
     def forward(self, batch):
@@ -691,12 +689,11 @@ class AlproForSequenceClassification(AlproBaseModel):
         visual_inputs = visual_inputs.transpose(1, 2)
         
         image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([bz, 197, 768])
-        image_embeds = self.vision_test_proj(image_embeds)
+        ## image_embeds = self.vision_test_proj(image_embeds)
         ## Extract CLIP features
         ## CLIP/Vit asks for (b * t, c, h, w) as input.
         ##visual_inputs = visual_inputs.transpose(1, 2).view(-1, c, h, w)
         ##image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs).float() # ([bz * 16, patchz**2, 768]) float32 
-
         """Board casting text (CUDA out of mem)""" 
         """
         text_input_mask = text_input_mask.repeat(8, 1).view( b, -1) # ([bz * 16, 40]) -> ([bz , 16*40])

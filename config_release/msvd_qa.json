@@ -33,7 +33,7 @@
   "e2e_weights_path": "output/pretrain/alpro_pretrained_ckpt.pt",
   "train_batch_size": 3,
   "val_batch_size": 3,
-  "gradient_accumulation_steps": 12,
+  "gradient_accumulation_steps": 8,
   "num_train_epochs": 15,
   "min_valid_steps": 50,
   "num_valid": 30,
@@ -51,5 +51,7 @@
   "classifier": "mlp",
   "cls_hidden_scale": 2,
   "task": "msvd_qa",
-  "num_workers": 4
+  "num_workers": 4,
+
+  "frm_sampling_strategy":"rand"
 }

@@ -45,6 +45,10 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
                 "answer_type": "what"
                 }
     """
+
+    """@@Move this front for Later Use"""
+    ans2label = load_json(cfg.ans2label_path)
+
     raw_datalist = load_jsonl(anno_path)
     LOGGER.info(f"Loaded data size {len(raw_datalist)}")
     if cfg.data_ratio != 1.0:
@@ -65,6 +69,43 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
 
         d["answer_type"] = raw_d["answer_type"]
 
+        """@@Here we also want re_organize the original question for CLIP caption"""
+        if d["answer_type"] == "what":
+            caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
+            captions = []
+            for label in ans2label:
+                caption = caption_raw + " is " + label
+                captions.append(caption)
+            d["captions"] = captions
+        elif d["answer_type"] == "who":
+            caption_raw = d["question"][:-1].partition(' ')[2] ## remove 1 front word & "?""
+            captions = []
+            for label in ans2label:
+                caption = label + " " + caption_raw
+                captions.append(caption)
+            d["captions"] = captions
+        elif d["answer_type"] == "where":
+            caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
+            captions = []
+            for label in ans2label:
+                caption = caption_raw + " in " + label
+                captions.append(caption)
+            d["captions"] = captions
+        elif d["answer_type"] == "when":
+            caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
+            captions = []
+            for label in ans2label:
+                caption = caption_raw + " at " + label
+                captions.append(caption)
+            d["captions"] = captions
+        elif d["answer_type"] == "how": ##@@@ Maybe dealing with specially
+            caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
+            captions = []
+            for label in ans2label:
+                caption = label + " " + caption_raw
+                captions.append(caption)
+            d["captions"] = captions
+
         datalist.append(d)
 
     LOGGER.info(f"datalist {len(datalist)}")
@@ -82,7 +123,7 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
     )
     LOGGER.info(f"group_datalist {len(group_datalist)}")
 
-    ans2label = load_json(cfg.ans2label_path)
+    #ans2label = load_json(cfg.ans2label_path)
 
     frm_sampling_strategy = cfg.frm_sampling_strategy
     if not is_train:
@@ -403,6 +444,7 @@ def start_training(cfg):
 
     # prepare data
     tokenizer = BertTokenizerFast.from_pretrained(cfg.tokenizer_dir)
+    LOGGER.info("Text pre-tokenizer: {}".format(str(cfg.tokenizer_dir)))
     train_loader, val_loader = setup_dataloaders(cfg, tokenizer)
 
     # compute the number of steps and update cfg

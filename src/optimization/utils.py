@@ -11,6 +11,6 @@ def setup_e2e_optimizer(model, opts):
         OptimCls = AdamW
     else:
         raise ValueError('invalid optimizer')
-    optimizer = OptimCls(model.parameters(), lr=opts.learning_rate, betas=opts.betas)
+    optimizer = OptimCls(model.parameters(), lr=opts.learning_rate, betas=opts.betas, weight_decay=opts.weight_decay)
 
     return optimizer

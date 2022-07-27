@@ -657,9 +657,8 @@ class AlproForSequenceClassification(AlproBaseModel):
         """Freezing CLIP weight as default"""
         """@@@May not freeze of freeze a part of weights"""
         ## @@ unfreeze part-version weight!
-        for name, param in self.named_parameters():
-            if name.find('bias') == -1:
-                param.requires_grad = False
+        for param in self.CLIP_encoder.parameters():
+            param.requires_grad = False
         
         
 
@@ -686,8 +685,8 @@ class AlproForSequenceClassification(AlproBaseModel):
         
         image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([bz, 197, 768])
         
-        ## EXTRACT CLIP FEATURES
-
+        """EXTRACT CLIP FEATURES"""
+        """
         ## CLIP q_Captions
         batch_q_captions = batch['q_captions'] # (bz , config.num_labels) type: str
         batch_captions_features = [] # (bz, 2423, 512) type: list of tensor
@@ -712,7 +711,8 @@ class AlproForSequenceClassification(AlproBaseModel):
             CLIP_target_prob = (100.0 * image_CLIP_embeds[i] @ batch_captions_features[i].T).softmax(dim=-1).unsqueeze(0)
             CLIP_target_probs.append(CLIP_target_prob)
         CLIP_target_probs = torch.cat(CLIP_target_probs, dim=0)
-
+        """
+        
         """Board casting text (CUDA out of mem)""" 
         """
         text_input_mask = text_input_mask.repeat(8, 1).view( b, -1) # ([bz * 16, 40]) -> ([bz , 16*40])
@@ -760,8 +760,8 @@ class AlproForSequenceClassification(AlproBaseModel):
         
         """Late score fusion"""
         ## @@ May change --> Adjuster
-        CLIP_target_probs = self.bias_correction(CLIP_target_probs)
-        prediction = prediction + CLIP_target_probs
+        ## CLIP_target_probs = self.bias_correction(CLIP_target_probs)
+        ## prediction = prediction + CLIP_target_probs
 
         if targets is not None:
             loss = F.cross_entropy(prediction, targets)                

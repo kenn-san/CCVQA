@@ -90,8 +90,8 @@ class AlproVideoQADataset(AlproBaseDataset):
         example = dict(
             q_str=data["question"],
             question_id=data["question_id"],
-            label=data["answer"],
-            captions=data["captions"]
+            label=data["answer"]
+            ## @@captions=data["captions"]
         )
         if self.task_type in self.open_ended_qa_names:
             if self.return_label:
@@ -167,7 +167,7 @@ class VideoQACollator(object):
         v_collate = default_collate
         visual_inputs = v_collate([d["vid"] for d in batch])  # (B, T, 3, H, W)
 
-        q_captions = [d["examples"][0]["captions"] for d in batch]  #( B , len(ans2label))
+        ## @@ q_captions = [d["examples"][0]["captions"] for d in batch]  #( B , len(ans2label))
 
         # group data
         text_examples = flat_list_of_lists([d["examples"] for d in batch])
@@ -200,6 +200,6 @@ class VideoQACollator(object):
             text_input_mask=text_input_mask,
             question_ids=question_ids,
             labels=labels,
-            n_examples_list=n_examples_list,  # used to create image feature copies.
-            q_captions = q_captions #( B,len(ans2label))
+            n_examples_list=n_examples_list  # used to create image feature copies.
+            ## @@ q_captions = q_captions #( B,len(ans2label))
         )

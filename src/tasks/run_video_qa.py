@@ -47,7 +47,9 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
     """
 
     """@@Move this front for Later Use"""
+    ## @@Deprecated
     ans2label = load_json(cfg.ans2label_path)
+    ## @@Deprecated
 
     raw_datalist = load_jsonl(anno_path)
     LOGGER.info(f"Loaded data size {len(raw_datalist)}")
@@ -70,6 +72,7 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
         d["answer_type"] = raw_d["answer_type"]
 
         """@@Here we also want re_organize the original question for CLIP caption"""
+        """
         if d["answer_type"] == "what":
             caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
             captions = []
@@ -105,6 +108,7 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
                 caption = label + " " + caption_raw
                 captions.append(caption)
             d["captions"] = captions
+        """
 
         datalist.append(d)
 

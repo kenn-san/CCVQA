@@ -650,15 +650,17 @@ class AlproForSequenceClassification(AlproBaseModel):
         """Add CLIP as a side encoder"""
         self.CLIP_encoder, preprocess = clip.load("ViT-B/32") #no_need for preprocessing the image
         
-        """@@May Use
+        ## @@ Using
         self.bias_correction = nn.Linear(config.num_labels, config.num_labels)
         nn.init.xavier_uniform_(self.bias_correction.weight)
-        """
         
         """Freezing CLIP weight as default"""
         """@@@May not freeze of freeze a part of weights"""
-        for param in self.CLIP_encoder.parameters():
-            param.requires_grad = False
+        ## @@ unfreeze part-version weight!
+        for name, param in self.named_parameters():
+            if name.find('bias') == -1:
+                param.requires_grad = False
+        
         
 
     # def forward(self, image, text, targets, alpha=0, train=True):
@@ -699,8 +701,8 @@ class AlproForSequenceClassification(AlproBaseModel):
         ## CLIP/Vit asks for (b * t, c, h, w) as input.
 
         ## Here only 1 frame is RANDOMLY picked
-        """@@ RANDOMLY needs to be change"""
-        visual_inputs = visual_inputs.transpose(1, 2)[:, random.randint(0, 15)]
+        ## @@ RANDOMLY -> 7th
+        visual_inputs = visual_inputs.transpose(1, 2)[:, 7]
         image_CLIP_embeds = self.CLIP_encoder.encode_image(visual_inputs).float() # ([bz * 1, 512]) float32 
         image_CLIP_embeds /= image_CLIP_embeds.norm(dim=-1, keepdim=True)
 
@@ -757,7 +759,8 @@ class AlproForSequenceClassification(AlproBaseModel):
         prediction = self.classifier(output.last_hidden_state[:,0,:])
         
         """Late score fusion"""
-        """@@May change --> Adjuster ?"""
+        ## @@ May change --> Adjuster
+        CLIP_target_probs = self.bias_correction(CLIP_target_probs)
         prediction = prediction + CLIP_target_probs
 
         if targets is not None:

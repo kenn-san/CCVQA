@@ -30,7 +30,7 @@
   "model_config": "config_release/base_model.json",
   "tokenizer_dir": "ext/bert-base-uncased/",
   "visual_model_cfg": "config_release/timesformer_divst_8x32_224_k600_gc.json",
-  "e2e_weights_path": "output/pretrain/alpro_pretrained_ckpt.pt",
+  "e2e_weights_path": "output/pretrain/model_step_5850.pt",
   "train_batch_size": 3,
   "val_batch_size": 3,
   "gradient_accumulation_steps": 8,

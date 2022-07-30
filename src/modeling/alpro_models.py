@@ -17,6 +17,35 @@ from torch.nn import CrossEntropyLoss, MSELoss
 
 import src.modeling.clip as clip
 
+"""Add Init Function"""
+from torch.nn import init
+def init_modules(modules, w_init='kaiming_uniform'):
+    if w_init == "normal":
+        _init = init.normal_
+    elif w_init == "xavier_normal":
+        _init = init.xavier_normal_
+    elif w_init == "xavier_uniform":
+        _init = init.xavier_uniform_
+    elif w_init == "kaiming_normal":
+        _init = init.kaiming_normal_
+    elif w_init == "kaiming_uniform":
+        _init = init.kaiming_uniform_
+    elif w_init == "orthogonal":
+        _init = init.orthogonal_
+    else:
+        raise NotImplementedError
+    for m in modules:
+        if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d, nn.Linear)):
+            _init(m.weight)
+            if m.bias is not None:
+                torch.nn.init.zeros_(m.bias)
+        if isinstance(m, (nn.LSTM, nn.GRU)):
+            for name, param in m.named_parameters():
+                if 'bias' in name:
+                    nn.init.zeros_(param)
+                elif 'weight' in name:
+                    _init(param)
+
 
 class AlproBaseModel(nn.Module):
     def __init__(self, config=None, input_format='RGB', video_enc_cfg=None, temp=0.07):
@@ -638,22 +667,39 @@ class AlproForSequenceClassification(AlproBaseModel):
 
         self.text_encoder = BertModel.from_pretrained('bert-base-uncased', config=self.bert_config, add_pooling_layer=False)      
 
+        """
         self.classifier = nn.Sequential(
             nn.Linear(config.hidden_size,
                       config.hidden_size * 2),
             nn.ReLU(True),
             nn.Linear(config.hidden_size * 2, config.num_labels)
         )
+        """
+
+        """Add a new decoder arch"""
+        self.question_proj = nn.Linear(config.hidden_size, config.hidden_size)
+
+        self.classifier = nn.Sequential(nn.Dropout(0.15),
+                                        nn.Linear(config.hidden_size * 2, config.hidden_size),
+                                        nn.ReLU(True),
+                                        nn.BatchNorm1d(config.hidden_size),
+                                        nn.Dropout(0.15),
+                                        nn.Linear(config.hidden_size, config.num_labels))
 
         """Add CLIP as a new encoder"""
-        self.CLIP_encoder, preprocess = clip.load("ViT-B/16") #no_need for preprocessing the image
+        ## self.CLIP_encoder, _ = clip.load("ViT-B/16") #no_need for preprocessing the image
 
-        self.CLIP_norm = nn.LayerNorm(768)
-        self.ADD_norm = nn.LayerNorm(768)
-        ##"""Freezing CLIP weight as default"""
-        ##for param in self.CLIP_encoder.parameters():
-        ##    param.requires_grad = False
-        
+        """Add a shifting unit"""
+        self.shifter = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.ReLU(True),
+            nn.Linear(config.hidden_size, 1),
+            nn.Sigmoid()
+        )
+
+        ## init_modules(self.shifter.modules(), w_init="xavier_uniform")
+        ## init_modules(self.classifier.modules(), w_init="xavier_uniform")
+        ## init_modules(self.question_proj.modules(), w_init="xavier_uniform")
 
     # def forward(self, image, text, targets, alpha=0, train=True):
     def forward(self, batch):
@@ -675,53 +721,43 @@ class AlproForSequenceClassification(AlproBaseModel):
         b, t, c, h, w = visual_inputs.shape
         # timeSformer asks for (b, c, t, h, w) as input.
         visual_inputs = visual_inputs.transpose(1, 2)
+
+        """Modality Shifting"""
+        text_pooled_embeds = text_embeds.mean(dim=1) # ([bz, 768])
+        mod = self.shifter(text_pooled_embeds) # ([bz, 1])
         
+        """ ## @@todo
+        ## if not self.training
+        image_embeds = []
+        for i in range(b):
+            a = mod[i]
+        """
+
         image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([bz, 197, 768])
         
-        ## Extract CLIP features
+        """Extract CLIP features @@todo
         ## CLIP/Vit asks for (b * t, c, h, w) as input.
         visual_inputs = visual_inputs.transpose(1, 2).view(-1, c, h, w)
         image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs).float() # ([bz * 16, patchz**2, 768]) float32 
 
-        """Board casting text (CUDA out of mem)""" 
-        """
-        text_input_mask = text_input_mask.repeat(8, 1).view( b, -1) # ([bz * 16, 40]) -> ([bz , 16*40])
-        text_embeds = text_embeds.repeat(8, 1, 1).view( b, -1, 768)  # ([bz * 16, 40, 768]) -> ([bz , 16*40, 768])
-        CLIP_cls_tokens = image_CLIP_embeds[:, 0, :].unsqueeze(1)
-        image_CLIP_embeds = self.CLIP_norm(image_CLIP_embeds[:, 1:])
-        image_CLIP_embeds = torch.cat([CLIP_cls_tokens, image_CLIP_embeds], dim = 1).view(b, -1, 768)
-        """
-
-        """Average Pooling"""
-        """
-        ## Simple pooling on temporal dim
+        ## apply 'mean' pooling over 16 frames result
         image_CLIP_embeds = image_CLIP_embeds.view(-1, 16, 197, 768) # ([bz, 16, 197, 768])
         image_CLIP_embeds = image_CLIP_embeds.mean(dim=1) # ([bz, 197, 768])
+        """
+
+        """ADD & NORM
         CLIP_cls_tokens = image_CLIP_embeds[:, 0, :].unsqueeze(1)
         image_CLIP_embeds = self.CLIP_norm(image_CLIP_embeds[:, 1:])
         image_CLIP_embeds = torch.cat([CLIP_cls_tokens, image_CLIP_embeds], dim = 1)  # ([bz, 197, 768])
-        """
-
-        """Add and Norm with Original Features"""
-        image_CLIP_embeds = image_CLIP_embeds.view(-1, 16, 197, 768) # ([bz, 16, 197, 768])
-        image_CLIP_embeds = image_CLIP_embeds.mean(dim=1) # ([bz, 197, 768])
-        CLIP_cls_tokens = image_CLIP_embeds[:, 0, :].unsqueeze(1)
-        image_CLIP_embeds = self.CLIP_norm(image_CLIP_embeds[:, 1:])
-        image_CLIP_embeds = torch.cat([CLIP_cls_tokens, image_CLIP_embeds], dim = 1)  # ([bz, 197, 768])
-
         image_embeds = self.ADD_norm(image_embeds + image_CLIP_embeds)
+        """
 
         """Visual Feature Manipulation"""
-        image_CLIP_atts = torch.ones(image_CLIP_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, patchz**2 + 1]) long all 1
         image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, 197]) long all 1
 
         # forward cross-encoder
         attention_mask = torch.cat([text_input_mask, image_atts], dim=1)
-        embedding_output = torch.cat([text_embeds, image_embeds], dim=1) 
-
-        #attention_mask = torch.cat([text_input_mask, image_CLIP_atts ,image_atts], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237])
-        #embedding_output = torch.cat([text_embeds, image_CLIP_embeds ,image_embeds], dim=1) # ([bz, 40+197 @+patchz**2 + 1@ = 237, 768])
-
+        embedding_output = torch.cat([text_embeds, image_embeds], dim=1)
 
         output = self.text_encoder(encoder_embeds=embedding_output,
                                 attention_mask=attention_mask,
@@ -729,7 +765,12 @@ class AlproForSequenceClassification(AlproBaseModel):
                                 mode='fusion'
                                 )
         
-        prediction = self.classifier(output.last_hidden_state[:,0,:])
+        """Add a new decoder arch"""
+        question_embedding = self.question_proj(batch['text_input_ids'][:,0,:])
+        out = torch.cat([output.last_hidden_state[:,0,:], question_embedding], 1)
+        prediction = self.classifier(out)
+        
+        ## prediction = self.classifier(output.last_hidden_state[:,0,:])
         if targets is not None:
             loss = F.cross_entropy(prediction, targets)                
         else: # evaluation mode

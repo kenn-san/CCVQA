@@ -163,9 +163,9 @@ class AlproBaseDataset(Dataset):
                 pertube = np.array([np.random.randint(0, stride) for stride in strides])
 
                 frame_indices = frame_indices + pertube
-
-            elif self.frm_sampling_strategy == 'rand':
-                frame_indices = sorted(random.sample(range(vlen), self.num_frm))
+                
+            elif self.frm_sampling_strategy == 'rand': 
+                frame_indices = sorted(random.sample(range(vlen), self.num_frm * 2)) ##@ sample more frame for selection
             elif self.frm_sampling_strategy == 'headtail':
                 frame_indices_head = sorted(random.sample(range(vlen // 2), self.num_frm // 2))
                 frame_indices_tail = sorted(random.sample(range(vlen // 2, vlen), self.num_frm // 2))

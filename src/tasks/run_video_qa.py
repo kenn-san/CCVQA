@@ -46,10 +46,9 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
                 }
     """
 
-    """@@Move this front for Later Use"""
-    ## @@Deprecated
+
     ans2label = load_json(cfg.ans2label_path)
-    ## @@Deprecated
+
 
     raw_datalist = load_jsonl(anno_path)
     LOGGER.info(f"Loaded data size {len(raw_datalist)}")
@@ -72,43 +71,28 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
         d["answer_type"] = raw_d["answer_type"]
 
         """@@Here we also want re_organize the original question for CLIP caption"""
-        """
         if d["answer_type"] == "what":
+            ## @@ IF works, careful answer context generation is going to be designed
             caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
-            captions = []
-            for label in ans2label:
-                caption = caption_raw + " is " + label
-                captions.append(caption)
-            d["captions"] = captions
+            d["q_caption"] = caption_raw
+
         elif d["answer_type"] == "who":
             caption_raw = d["question"][:-1].partition(' ')[2] ## remove 1 front word & "?""
-            captions = []
-            for label in ans2label:
-                caption = label + " " + caption_raw
-                captions.append(caption)
-            d["captions"] = captions
+            caption = "a person" + " " + caption_raw
+            d["q_caption"] = caption
+
         elif d["answer_type"] == "where":
             caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
-            captions = []
-            for label in ans2label:
-                caption = caption_raw + " in " + label
-                captions.append(caption)
-            d["captions"] = captions
+            d["q_caption"] = caption_raw
+
         elif d["answer_type"] == "when":
             caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
-            captions = []
-            for label in ans2label:
-                caption = caption_raw + " at " + label
-                captions.append(caption)
-            d["captions"] = captions
+            d["q_caption"] = caption_raw
+
         elif d["answer_type"] == "how": ##@@@ Maybe dealing with specially
             caption_raw = d["question"][:-1].partition(' ')[2].partition(' ')[2] ## remove 2 front words & "?""
-            captions = []
-            for label in ans2label:
-                caption = label + " " + caption_raw
-                captions.append(caption)
-            d["captions"] = captions
-        """
+            caption = "some" + " " + caption_raw
+            d["q_caption"] = caption
 
         datalist.append(d)
 
@@ -518,7 +502,7 @@ def start_training(cfg):
         num_clips = cfg.train_n_clips
         num_frm = cfg.num_frm
         # (B, T=num_clips*num_frm, C, H, W) --> (B, num_clips, num_frm, C, H, W)
-        new_visual_shape = (bsz, num_clips, num_frm) + batch["visual_inputs"].shape[2:]
+        new_visual_shape = (bsz, num_clips, num_frm * 2) + batch["visual_inputs"].shape[2:] ##@ sample more frame for selection
         visual_inputs = batch["visual_inputs"].view(*new_visual_shape)
         logits = []
         for clip_idx in range(num_clips):

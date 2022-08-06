@@ -5,7 +5,7 @@
       "txt": {
         "msvd_qa": "data/msvd_qa/txt/train.jsonl"
       },
-      "img": "data/msvd_qa/videos"
+      "img": "/temp/msvd/videos"
     }
   ],
   "val_datasets": [
@@ -14,7 +14,7 @@
       "txt": {
         "msvd_qa": "data/msvd_qa/txt/val.jsonl"
       },
-      "img": "data/msvd_qa/videos"
+      "img": "/temp/msvd/videos"
     }
   ],
   "ans2label_path": "data/msvd_qa/txt/train_ans2label.json",

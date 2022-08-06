@@ -653,10 +653,9 @@ class AlproForSequenceClassification(AlproBaseModel):
         ## @@ Using
         self.bias_correction = nn.Linear(config.num_labels, config.num_labels)
         nn.init.xavier_uniform_(self.bias_correction.weight)
-        
+
         """Freezing CLIP weight as default"""
         """@@@May not freeze of freeze a part of weights"""
-        ## @@ unfreeze part-version weight!
         for param in self.CLIP_encoder.parameters():
             param.requires_grad = False
         
@@ -680,39 +679,54 @@ class AlproForSequenceClassification(AlproBaseModel):
 
         # forward visual
         b, t, c, h, w = visual_inputs.shape
-        # timeSformer asks for (b, c, t, h, w) as input.
-        visual_inputs = visual_inputs.transpose(1, 2)
-        
-        image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([bz, 197, 768])
+
         
         """EXTRACT CLIP FEATURES"""
-        """
-        ## CLIP q_Captions
-        batch_q_captions = batch['q_captions'] # (bz , config.num_labels) type: str
-        batch_captions_features = [] # (bz, 2423, 512) type: list of tensor
-        for q_captions in batch_q_captions :
-            captions_tokens = clip.tokenize(q_captions).to(device)
-            captions_features = self.CLIP_encoder.encode_text(captions_tokens).float()
-            captions_features /= captions_features.norm(dim=-1, keepdim=True)
-            batch_captions_features.append(captions_features)
+        ## select visual features
+        ## CLIP/Vit asks for (b) * (t, c, h, w) as input.
+        batch_q_caption = batch['q_caption'] # (bz) size list   type: str
+        selected_visual_inputs = [] # (b) * (t-selected , c, h, w)
+        for i in range(b):
+            ## language
+            q_caption = batch_q_caption[i]
+            caption_tokens = clip.tokenize(q_caption).to(device)
+            caption_features = self.CLIP_encoder.encode_text(caption_tokens).float()
+            caption_features /= caption_features.norm(dim=-1, keepdim=True)
+            ## visual
+            visual_input = visual_inputs[i] ## (t, c, h, w)
+            image_CLIP_embeds = self.CLIP_encoder.encode_image(visual_input).float() # ([t , 512]) float32 
+            image_CLIP_embeds /= image_CLIP_embeds.norm(dim=-1, keepdim=True)
+            ## fusion                   (t, 512) @ (512[, 1]) -> (t)
+            CLIP_target_prob = (100.0 * image_CLIP_embeds @ caption_features.T).softmax(dim=-1).squeeze(dim=1)
 
-        ## Visual features
-        ## CLIP/Vit asks for (b * t, c, h, w) as input.
+            ##@print("Ha")
+            ##@print(CLIP_target_prob.shape)
 
-        ## Here only 1 frame is RANDOMLY picked
-        ## @@ RANDOMLY -> 7th
-        visual_inputs = visual_inputs.transpose(1, 2)[:, 7]
-        image_CLIP_embeds = self.CLIP_encoder.encode_image(visual_inputs).float() # ([bz * 1, 512]) float32 
-        image_CLIP_embeds /= image_CLIP_embeds.norm(dim=-1, keepdim=True)
+            ## rank & select
+            _, indices = CLIP_target_prob.topk(16)
+            selected_visual_input = []
+            for j in range(t):
+                if j in indices:
+                    selected_visual_input.append(visual_input[j].unsqueeze(0))
+            selected_visual_input = torch.cat(selected_visual_input, dim=0).unsqueeze(0)
 
-        ## 1 to 1 score and concat
-        CLIP_target_probs = []
-        for i in range(0, b):
-            CLIP_target_prob = (100.0 * image_CLIP_embeds[i] @ batch_captions_features[i].T).softmax(dim=-1).unsqueeze(0)
-            CLIP_target_probs.append(CLIP_target_prob)
-        CLIP_target_probs = torch.cat(CLIP_target_probs, dim=0)
-        """
+            ##@print("Hee")
+            ##@print(selected_visual_input.shape)
+
+            selected_visual_inputs.append(selected_visual_input)
         
+        selected_visual_inputs = torch.cat(selected_visual_inputs, dim=0)
+
+        ##@print("Hu")
+        ##@print(t)
+        ##@print(selected_visual_inputs.shape)
+
+        # timeSformer asks for (b, c, t, h, w) as input.
+        visual_inputs = selected_visual_inputs.transpose(1, 2)
+        image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([bz, 197, 768])
+        
+
+
         """Board casting text (CUDA out of mem)""" 
         """
         text_input_mask = text_input_mask.repeat(8, 1).view( b, -1) # ([bz * 16, 40]) -> ([bz , 16*40])

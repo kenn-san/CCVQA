@@ -228,7 +228,15 @@ class VisionTransformer(nn.Module):
             x = x @ self.proj
 
         return x
-    
+
+    ## forward linear transform only    (x is a tensor from transformer)
+    def forward_ln_trans(self, x: torch.Tensor):
+        x = self.ln_post(x[:, 0, :])
+        if self.proj is not None:
+            x = x.float() @ self.proj.float() ## -> float32
+
+        return x
+
     ## forward feature only
     def forward_features(self, x: torch.Tensor):
         x = self.conv1(x)  # shape = [*, width, grid, grid]

@@ -234,6 +234,16 @@ def setup_model(cfg, device=None):
                                                 strict=False,
                                                 remove_text_encoder_prefix=True
                                                 )
+        cfg.original_weights_path = "output/downstreams/msvd_qa/public/ckpt/model_step_best.pt"
+        LOGGER.info(f"Loading origin weights from {cfg.original_weights_path}")
+        load_state_dict_with_pos_embed_resizing(model.origin_stream, 
+                                                cfg.original_weights_path, 
+                                                num_patches=num_patches,
+                                                num_frames=cfg.num_frm, 
+                                                strict=False,
+                                                remove_text_encoder_prefix=True
+                                                )
+
         # LOGGER.info(f"Loading e2e weights from {cfg.e2e_weights_path}")
         # load_state_dict_with_mismatch(model, cfg.e2e_weights_path)
     else:

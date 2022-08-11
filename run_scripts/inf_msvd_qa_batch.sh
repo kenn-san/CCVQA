@@ -12,7 +12,7 @@ IMG_DB='data/msvd_qa/videos'
 #Run multiple steps (10 times once)
 #
 
-for (( STEP=3250; STEP<=8450; STEP+=650 ))
+for (( STEP=6500; STEP<=6500; STEP+=650 ))
 do 
    echo "Step:$STEP"
    horovodrun -np 1 python src/tasks/run_video_qa.py \

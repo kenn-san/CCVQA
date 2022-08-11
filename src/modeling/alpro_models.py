@@ -680,25 +680,36 @@ class AlproForSequenceClassification(AlproBaseModel):
 
         """Build MLP fusion model for classification"""
         self.bias_correction = nn.Linear(config.num_labels, config.num_labels)
+
+        """Original Weights"""
+        self.origin_stream = AlproForSequenceClassificationOrigin(config, video_enc_cfg, input_format)
+
+        """
         self.last_classifier = nn.Sequential(
             nn.Linear(config.num_labels * 2,
                       config.num_labels * 2),
             nn.ReLU(True),
             nn.Linear(config.num_labels * 2, config.num_labels)
         )
+        """
 
+        """
         nn.init.normal_(self.bias_correction.weight)
         init_modules(self.last_classifier)
+        """
         
         """Freezing weights"""
         for param in self.CLIP_encoder.parameters():
             param.requires_grad = False
-
         for param in self.visual_encoder.parameters():
             param.requires_grad = False
         for param in self.text_encoder.parameters():
             param.requires_grad = False
-        
+        for param in self.origin_stream.parameters():
+            param.requires_grad = False
+
+        for param in self.bias_correction.parameters():
+            param.requires_grad = False
 
     # def forward(self, image, text, targets, alpha=0, train=True):
     def forward(self, batch):
@@ -762,12 +773,20 @@ class AlproForSequenceClassification(AlproBaseModel):
                                 )
         
         prediction = self.classifier(output.last_hidden_state[:,0,:])
+
         
         """Late score fusion"""
         ## @@ May change --> Adjuster
         CLIP_target_probs = self.bias_correction(CLIP_target_probs)
-        concat_props = torch.cat([CLIP_target_probs, prediction], dim=1)
-        prediction = self.last_classifier(concat_props)
+        prediction = prediction + CLIP_target_probs # (bz , num_labels)
+        
+        """weight adjuster"""
+        q_types = batch["q_type"]
+        what_prediction = self.origin_stream.forward_inference(batch)
+
+        for i in range(b):
+            if(q_types[i] == "what"):
+                prediction[i] = what_prediction[i]
 
         if targets is not None:
             loss = F.cross_entropy(prediction, targets)                
@@ -813,6 +832,103 @@ class AlproForSequenceClassification(AlproBaseModel):
         prediction = self.classifier(output.last_hidden_state[:,0,:])                
 
         return prediction
+
+
+class AlproForSequenceClassificationOrigin(AlproBaseModel):
+        def __init__(self, config, video_enc_cfg, input_format='RGB'):
+            super(AlproForSequenceClassificationOrigin, self).__init__(config, video_enc_cfg=video_enc_cfg)
+
+            self.text_encoder = BertModel.from_pretrained('bert-base-uncased', config=self.bert_config, add_pooling_layer=False)      
+
+            self.classifier = nn.Sequential(
+                nn.Linear(config.hidden_size,
+                          config.hidden_size * 2),
+                nn.ReLU(True),
+                nn.Linear(config.hidden_size * 2, config.num_labels)
+            )
+
+
+        # def forward(self, image, text, targets, alpha=0, train=True):
+        def forward(self, batch):
+            visual_inputs = batch['visual_inputs']
+            targets = batch['labels']
+
+            device = visual_inputs.device
+
+            # forward text
+            text_input_mask = batch['text_input_mask'] # ([bz, 40])
+            text_output = self.text_encoder(batch['text_input_ids'],
+                                            attention_mask=text_input_mask,
+                                            return_dict=True,
+                                            mode='text'
+                                            )
+            text_embeds = text_output.last_hidden_state # ([bz, 40, 768])
+
+            # forward visual
+            b, t, c, h, w = visual_inputs.shape
+            # timeSformer asks for (b, c, t, h, w) as input.
+            visual_inputs = visual_inputs.transpose(1, 2)
+
+            image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True) # ([bz, 197, 768])
+
+            """Forward to Multi-Modal encoder"""
+            image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, 197]) long all 1
+
+            # forward cross-encoder
+            attention_mask = torch.cat([text_input_mask, image_atts], dim=1)
+            embedding_output = torch.cat([text_embeds, image_embeds], dim=1) 
+
+            output = self.text_encoder(encoder_embeds=embedding_output,
+                                    attention_mask=attention_mask,
+                                    return_dict=True,
+                                    mode='fusion'
+                                    )
+
+            prediction = self.classifier(output.last_hidden_state[:,0,:])
+
+            if targets is not None:
+                loss = F.cross_entropy(prediction, targets)                
+            else: # evaluation mode
+                loss = 0
+
+            return dict(loss=loss,
+                        logits=prediction
+                        )
+
+        def forward_inference(self, batch):
+            visual_inputs = batch['visual_inputs']
+            device = visual_inputs.device
+
+            # forward text
+            text_input_mask = batch['text_input_mask']
+            text_output = self.text_encoder(batch['text_input_ids'],
+                                                 attention_mask=text_input_mask,
+                                                 return_dict=True,
+                                                 mode='text'
+                                            )
+            text_embeds = text_output.last_hidden_state
+
+            # forward visual
+            b, t, c, h, w = visual_inputs.shape
+            # timeSformer asks for (b, c, t, h, w) as input.
+            visual_inputs = visual_inputs.transpose(1, 2)
+
+            image_embeds = self.visual_encoder.forward_features(visual_inputs, return_all_tokens=True)
+            image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device)
+
+            # forward cross-encoder
+            attention_mask = torch.cat([text_input_mask, image_atts], dim=1)
+            embedding_output = torch.cat([text_embeds, image_embeds], dim=1)
+
+            output = self.text_encoder(encoder_embeds=embedding_output,
+                                            attention_mask=attention_mask,
+                                            return_dict=True,
+                                            mode='fusion'
+                                        )
+
+            prediction = self.classifier(output.last_hidden_state[:,0,:])                
+
+            return prediction
 
 
 class AlproForVideoTextRetrieval(AlproBaseModel):

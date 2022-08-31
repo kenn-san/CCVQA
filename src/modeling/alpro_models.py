@@ -21,7 +21,7 @@ from src.modeling.clip import *
 from torch.nn import init
 
 
-def init_modules(modules, w_init='normal'):
+def init_modules(modules, w_init='xavier_uniform'):
     if w_init == "normal":
         _init = init.normal_
     elif w_init == "xavier_normal":
@@ -684,6 +684,20 @@ class AlproForSequenceClassification(AlproBaseModel):
         """Original Weights"""
         self.origin_stream = AlproForSequenceClassificationOrigin(config, video_enc_cfg, input_format)
 
+        """Head3 Correction"""
+        self.head3_bias_correction = nn.Linear(config.num_labels, config.num_labels)
+
+        """Head4 Classifier"""
+        self.head4_classifier = nn.Sequential(
+            nn.Linear(config.hidden_size,
+                      config.hidden_size * 2),
+            nn.ReLU(True),
+            nn.Linear(config.hidden_size * 2, config.num_labels)
+        )
+
+        nn.init.xavier_uniform_(self.head3_bias_correction.weight)
+        init_modules(self.head4_classifier)
+
         """
         self.last_classifier = nn.Sequential(
             nn.Linear(config.num_labels * 2,
@@ -707,7 +721,7 @@ class AlproForSequenceClassification(AlproBaseModel):
             param.requires_grad = False
         for param in self.origin_stream.parameters():
             param.requires_grad = False
-
+        ##############################################
         for param in self.bias_correction.parameters():
             param.requires_grad = False
 
@@ -749,7 +763,8 @@ class AlproForSequenceClassification(AlproBaseModel):
         ## Here only 1 frame is RANDOMLY picked
         ## @@ RANDOMLY -> 7th
         visual_inputs = visual_inputs.transpose(1, 2)[:, 7]
-        image_CLIP_embeds = self.CLIP_encoder.encode_image(visual_inputs).float() # ([bz * 1, 512]) float32 
+        image_CLIP_feats = self.CLIP_encoder.encode_image_features(visual_inputs)
+        image_CLIP_embeds = self.CLIP_encoder.forward_image_ln_trans_only(image_CLIP_feats).float() # ([bz * 1, 512]) float32 
         image_CLIP_embeds /= image_CLIP_embeds.norm(dim=-1, keepdim=True)
 
         ## 1 to 1 score and concat
@@ -774,11 +789,36 @@ class AlproForSequenceClassification(AlproBaseModel):
         
         prediction = self.classifier(output.last_hidden_state[:,0,:])
 
+        """Multi-Head architecture"""
+        ## TimeSformer vision features + CLIP language features Head
+        ##
+        head3_visual_embeds = self.CLIP_encoder.forward_image_ln_trans_only(image_embeds) # ([bz, 197, 768]) -> ([bz, 1, 768])/([bz, 768]) -> # ([bz, 512])
+        ## 1 to 1 score and concat
+        head3_CLIP_target_probs = []
+        for i in range(b):
+            head3_CLIP_target_prob = (100.0 * head3_visual_embeds[i] @ batch_captions_features[i].T).softmax(dim=-1).unsqueeze(0)
+            head3_CLIP_target_probs.append(head3_CLIP_target_prob)
+        head3_CLIP_target_probs = torch.cat(head3_CLIP_target_probs, dim=0)
+        head3 = self.head3_bias_correction(head3_CLIP_target_probs) * 0.05
+
+        # VIT features + original language features Head
+        ##
+        # image_CLIP_feats # ([bz, sequence_length, 768])
+        image_CLIP_atts = torch.ones(image_CLIP_feats.size()[:-1],dtype=torch.long).to(device)
+        attention_CLIP_mask = torch.cat([text_input_mask, image_CLIP_atts], dim=1)
+        embedding_CLIP_output = torch.cat([text_embeds, image_CLIP_feats], dim=1)
+        head4_output = self.text_encoder(encoder_embeds=embedding_CLIP_output,
+                                attention_mask=attention_CLIP_mask,
+                                return_dict=True,
+                                mode='fusion'
+                                )
+        head4 = self.head4_classifier(head4_output.last_hidden_state[:,0,:]) * 0.05
         
         """Late score fusion"""
         ## @@ May change --> Adjuster
         CLIP_target_probs = self.bias_correction(CLIP_target_probs)
         prediction = prediction + CLIP_target_probs # (bz , num_labels)
+        prediction = prediction + head3 + head4
         
         """weight adjuster"""
         q_types = batch["q_type"]

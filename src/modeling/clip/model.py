@@ -353,8 +353,13 @@ class CLIP(nn.Module):
     def encode_image(self, image):
         return self.visual(image.type(self.dtype))
     
+    """Self-define method"""
     def encode_image_features(self, image):
         return self.visual.forward_features(image.type(self.dtype))
+    
+    """Self-define method"""
+    def forward_image_ln_trans_only(self, x):
+        return self.visual.forward_ln_trans(x)
 
     def encode_text(self, text):
         x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]

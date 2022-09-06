@@ -150,7 +150,10 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
         return_label=return_label,
         is_train=is_train,
         img_db_type='rawvideo',
-        video_fmt=video_fmt
+        video_fmt=video_fmt,
+
+        ##@
+        key_frm_db_dir=cfg.key_frm_db_dir
     )
     LOGGER.info(f"is_train {is_train}, dataset size {len(dataset)} groups, "
                 f"each group {cfg.max_n_example_per_group if is_train else 1}")

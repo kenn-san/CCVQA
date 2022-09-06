@@ -5,7 +5,7 @@
       "txt": {
         "msvd_qa": "data/msvd_qa/txt/train.jsonl"
       },
-      "img": "/temp2/msvd/videos"
+      "img": "/temp/msvd/videos"
     }
   ],
   "val_datasets": [
@@ -14,7 +14,7 @@
       "txt": {
         "msvd_qa": "data/msvd_qa/txt/val.jsonl"
       },
-      "img": "/temp2/msvd/videos"
+      "img": "/temp/msvd/videos"
     }
   ],
   "ans2label_path": "data/msvd_qa/txt/train_ans2label.json",
@@ -53,5 +53,7 @@
   "task": "msvd_qa",
   "num_workers": 4,
 
-  "frm_sampling_strategy":"rand"
+  "frm_sampling_strategy":"rand",
+  "key_frm_db_dir":"/temp/msvd_key_frames/msvd_key_frames", 
+  "debug": 1
 }

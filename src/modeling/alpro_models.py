@@ -680,9 +680,14 @@ class AlproForSequenceClassification(AlproBaseModel):
 
         """Build MLP fusion model for classification"""
         self.bias_correction = nn.Linear(config.num_labels, config.num_labels)
+        
+        ##self.bias_correction_2 = nn.Linear(config.num_labels, config.num_labels)
 
         """Original Weights"""
+        ##@ Used in Validation
+        """
         self.origin_stream = AlproForSequenceClassificationOrigin(config, video_enc_cfg, input_format)
+        """
 
         """
         self.last_classifier = nn.Sequential(
@@ -693,23 +698,29 @@ class AlproForSequenceClassification(AlproBaseModel):
         )
         """
 
+        
+        nn.init.xavier_uniform_(self.bias_correction.weight)
+        ##nn.init.xavier_uniform_(self.bias_correction_2.weight)
         """
-        nn.init.normal_(self.bias_correction.weight)
         init_modules(self.last_classifier)
         """
         
+
         """Freezing weights"""
         for param in self.CLIP_encoder.parameters():
             param.requires_grad = False
+
+        ##@ Used in Validation
+        """
         for param in self.visual_encoder.parameters():
             param.requires_grad = False
         for param in self.text_encoder.parameters():
             param.requires_grad = False
         for param in self.origin_stream.parameters():
             param.requires_grad = False
-
         for param in self.bias_correction.parameters():
             param.requires_grad = False
+        """
 
     # def forward(self, image, text, targets, alpha=0, train=True):
     def forward(self, batch):
@@ -748,7 +759,15 @@ class AlproForSequenceClassification(AlproBaseModel):
         ## CLIP/Vit asks for (b * t, c, h, w) as input.
         ## Here only 1 frame is RANDOMLY picked
         ## @@ RANDOMLY -> 7th
-        visual_inputs = visual_inputs.transpose(1, 2)[:, 7]
+
+        """If training !!!!!!"""
+        if self.training:
+            visual_inputs = visual_inputs.transpose(1, 2)[:, 7]
+            """If validating !!!!!!"""
+        else:
+            visual_inputs = batch["key_frames"] #(b, c, h, w)
+
+
         image_CLIP_embeds = self.CLIP_encoder.encode_image(visual_inputs).float() # ([bz * 1, 512]) float32 
         image_CLIP_embeds /= image_CLIP_embeds.norm(dim=-1, keepdim=True)
 
@@ -778,15 +797,19 @@ class AlproForSequenceClassification(AlproBaseModel):
         """Late score fusion"""
         ## @@ May change --> Adjuster
         CLIP_target_probs = self.bias_correction(CLIP_target_probs)
+        
         prediction = prediction + CLIP_target_probs # (bz , num_labels)
         
         """weight adjuster"""
+        ##@ Used in Validation
+        """
         q_types = batch["q_type"]
         what_prediction = self.origin_stream.forward_inference(batch)
 
         for i in range(b):
             if(q_types[i] == "what"):
                 prediction[i] = what_prediction[i]
+        """
 
         if targets is not None:
             loss = F.cross_entropy(prediction, targets)                

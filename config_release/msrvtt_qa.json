@@ -5,7 +5,7 @@
       "txt": {
         "msrvtt_qa": "data/msrvtt_qa/txt/train.jsonl"
       },
-      "img": "data/msrvtt_qa/videos"
+      "img": "/temp/MSRVTT/videos/all"
     }
   ],
   "val_datasets": [
@@ -14,7 +14,7 @@
       "txt": {
         "msrvtt_qa": "data/msrvtt_qa/txt/val.jsonl"
       },
-      "img": "data/msrvtt_qa/videos"
+      "img": "/temp/MSRVTT/videos/all"
     }
   ],
   "ans2label_path": "data/msrvtt_qa/txt/train_ans2label.json",
@@ -30,8 +30,8 @@
   "visual_model_cfg": "config_release/timesformer_divst_8x32_224_k600_gc.json",
   "e2e_weights_path": "output/pretrain/alpro_pretrained_ckpt.pt",
   "num_frm": 16,
-  "train_batch_size": 7,
-  "val_batch_size": 7,
+  "train_batch_size": 3,
+  "val_batch_size": 3,
   "gradient_accumulation_steps": 8,
   "num_train_epochs": 10,
   "min_valid_steps": 50,
@@ -49,5 +49,7 @@
   "classifier": "mlp",
   "cls_hidden_scale": 2,
   "task": "msrvtt_qa",
-  "num_workers": 4
+  "num_workers": 4,
+
+  "key_frm_db_dir":"/temp/msrvtt_key_frames/msrvtt_val_key_frames"
 }

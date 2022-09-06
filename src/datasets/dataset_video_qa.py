@@ -4,10 +4,20 @@ import random
 import numpy as np
 import copy
 from torch.utils.data.dataloader import default_collate
+from src.datasets.data_utils import ImageNorm
 from src.utils.basic_utils import flat_list_of_lists
 from src.utils.load_save import LOGGER
 from src.datasets.dataset_base import AlproBaseDataset
 from src.datasets.randaugment import TemporalConsistentRandomAugment
+
+##For key frame preprocess
+import clip
+_, preprocess = clip.load("ViT-B/32")
+from PIL import Image
+from torchvision import transforms
+decord_to_clip_frm_norm = transforms.Compose([
+    transforms.Normalize([0.48145466, 0.4578275, 0.40821073], [0.26862954, 0.26130258, 0.27577711])
+])
 
 
 class AlproVideoQADataset(AlproBaseDataset):
@@ -29,12 +39,18 @@ class AlproVideoQADataset(AlproBaseDataset):
                  fps=3, num_frm=3, frm_sampling_strategy="rand",
                  max_img_size=1000, max_txt_len=20, ans2label=None,
                  ensemble_n_clips=1, return_label=True, is_train=False, random_sample_clips=True, 
-                 video_fmt='.mp4', img_db_type='lmdb'):
+                 video_fmt='.mp4', img_db_type='lmdb',
+                 ##@
+                 key_frm_db_dir='None'):
         super(AlproVideoQADataset, self).__init__(
             datalist, tokenizer, img_lmdb_dir, img_db_type=img_db_type,
             fps=fps, num_frm=num_frm,
             frm_sampling_strategy=frm_sampling_strategy,
             max_img_size=max_img_size, max_txt_len=max_txt_len)
+
+        ##@ key frames storing path
+        self.key_frm_db_dir = key_frm_db_dir
+
         self.ensemble_n_clips = ensemble_n_clips
         self.return_label = return_label
         self.is_train = is_train
@@ -65,7 +81,12 @@ class AlproVideoQADataset(AlproBaseDataset):
                 raise NotImplementedError('Do not support multiple clips for now.')
             else:
                 video_path = os.path.join(self.img_db_dir, vid_id + self.video_fmt) 
-                vid_frm_array = self._load_video_from_path_decord(video_path, height=self.max_img_size, width=self.max_img_size)
+                vid_frm_array = self._load_video_from_path_decord(video_path, height=self.max_img_size, width=self.max_img_size) # (c, h, w) (3, 224, 224)
+
+                ##@
+                if not self.is_train:
+                    image_path = os.path.join(self.key_frm_db_dir, vid_id + ".png")
+                    vid_key_frm = self._load_video_keyframe_from_path_PIL(image_path) # (c, h, w) (3, 224, 224)
 
             # Select a random video if the current video was not able to access.
             if vid_frm_array is None:
@@ -73,16 +94,36 @@ class AlproVideoQADataset(AlproBaseDataset):
                             f"Will randomly sample an example as a replacement.")
                 index = random.randint(0, len(self) - 1)
                 continue
+            
+            ##@
+            if not self.is_train:
+                # Select a random video frame if not found
+                if vid_key_frm is None:
+                    LOGGER.info(f"Failed to load the key_frame with video: {vid_id}. "
+                                f"Will randomly sample an example (7th) from vid_frm_array as a replacement.")
+                    vid_key_frm = decord_to_clip_frm_norm( (vid_frm_array[7]).float().div_(255.) )
 
             if self.randaug:
                 vid_frm_array = self.randaug(vid_frm_array.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
             examples = [self._get_single_example(e) for e in examples]
-            return dict(
-                vid=vid_frm_array,
-                examples=examples,
-                n_examples=len(examples)  # used to create image feature copies.
-            )
+
+            ##@
+            if not self.is_train:
+                return dict(
+                    vid=vid_frm_array,
+                    vid_key_frm=vid_key_frm,
+                    examples=examples,
+                    n_examples=len(examples)  # used to create image feature copies.
+                )
+            else:
+                return dict(
+                    vid=vid_frm_array,
+                    vid_key_frm=None,
+                    examples=examples,
+                    n_examples=len(examples)  # used to create image feature copies.
+                )
+
         else:
             raise RuntimeError(f"Failed to fetch video after {num_retries} retries.")
 
@@ -155,6 +196,17 @@ class AlproVideoQADataset(AlproBaseDataset):
             metrics["ratios"] = ratios
         return metrics
 
+    ##@ key_frame_loading function
+    def _load_video_keyframe_from_path_PIL(self, image_path):
+        # get process function from CLIP
+        if os.path.exists(image_path):
+            keyframe_image = Image.open(image_path).convert("RGB")
+            tensor_image = preprocess(keyframe_image)
+        else:
+            return None
+
+        return tensor_image
+
 
 class VideoQACollator(object):
     def __init__(self, tokenizer, max_length=20, task_type="action", n_options=5):
@@ -167,7 +219,15 @@ class VideoQACollator(object):
         v_collate = default_collate
         visual_inputs = v_collate([d["vid"] for d in batch])  # (B, T, 3, H, W)
 
-        q_captions = [d["examples"][0]["captions"] for d in batch]  #( B , len(ans2label))
+        ##@ Question to Statement Captions
+        q_captions = [d["examples"][0]["captions"] for d in batch]  #(B , len(ans2label))
+        ##@ key_frames
+        ##Not training
+        if batch[0]["vid_key_frm"] is None: 
+            key_frames = None
+        else:
+            key_frames = v_collate([d["vid_key_frm"] for d in batch]) #(b, c, h, w)
+
 
         # group data
         text_examples = flat_list_of_lists([d["examples"] for d in batch])
@@ -201,5 +261,7 @@ class VideoQACollator(object):
             question_ids=question_ids,
             labels=labels,
             n_examples_list=n_examples_list,  # used to create image feature copies.
-            q_captions = q_captions #( B,len(ans2label))
+            ##@ captions and keyframes
+            q_captions = q_captions, #(B,len(ans2label))
+            key_frames = key_frames #(b, c, h, w)
         )

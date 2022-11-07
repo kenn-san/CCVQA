@@ -153,7 +153,7 @@ def mk_qa_dataloader(task_type, anno_path, lmdb_dir, cfg, tokenizer,
         video_fmt=video_fmt,
 
         ##@
-        key_frm_db_dir=cfg.key_frm_db_dir
+        key_frm_db_dir= '/temp/msrvtt_key_frames/msrvtt_val_key_frames'
     )
     LOGGER.info(f"is_train {is_train}, dataset size {len(dataset)} groups, "
                 f"each group {cfg.max_n_example_per_group if is_train else 1}")

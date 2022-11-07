@@ -312,6 +312,8 @@ class E2E_TrainingRestorer(object):
                     restore_trial += 1
         else:
             self.global_step = 0
+            #@@@@@@@@@@@@@@@@@@@@@ quick hack for continue from a checkpoint
+            self.global_step = 23749
 
     def step(self):
         self.global_step += 1

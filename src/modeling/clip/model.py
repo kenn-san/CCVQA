@@ -361,6 +361,23 @@ class CLIP(nn.Module):
     def forward_image_ln_trans_only(self, x):
         return self.visual.forward_ln_trans(x)
 
+    """Self-define method"""
+    def encode_text_features(self, text):
+        x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
+
+        x = x + self.positional_embedding.type(self.dtype)
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = self.transformer(x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = self.ln_final(x).type(self.dtype)
+
+        # x.shape = [batch_size, n_ctx, transformer.width]
+        # take features from the eot embedding (eot_token is the highest number in each sequence)
+        ##@ No text projection is used here
+        x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)]
+
+        return x 
+
     def encode_text(self, text):
         x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
 

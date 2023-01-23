@@ -676,34 +676,47 @@ class AlproForSequenceClassification(AlproBaseModel):
         )
 
         """Add CLIP as a side language encoder"""
-        self.CLIP_encoder, _ = clip.load("ViT-B/32") #no_need for preprocessing the image
+        self.CLIP_encoder, _ = clip.load("ViT-B/16") #no_need for preprocessing the image
 
         """Build MLP fusion model for classification"""
-        self.bias_correction = nn.Linear(config.num_labels, config.num_labels)
+        self.head1_fusion_weight = nn.Linear(config.num_labels, config.num_labels) # for CLIP branch
+        self.head2_fusion_weight = nn.Linear(config.num_labels, config.num_labels) # for original ALPRO 
+        self.head3_fusion_weight = nn.Linear(config.num_labels, config.num_labels) # for CLIP_language features @ TS Vision features
+        self.head4_fusion_weight = nn.Linear(config.num_labels, config.num_labels) # for BERT encoded language @ with CLIP vit features
         
-        ##@ Adding more head weights for score in fusion
-        self.head2_bias_correction = nn.Linear(config.num_labels, config.num_labels) #for_original_branch
-        ##@ Head3 Correction
-        self.head3_bias_correction = nn.Linear(config.num_labels, config.num_labels) #for CLIP_language features @ TS Vision features
-
-        ##@ Head4 Classifier and weights
-        self.head4_classifier = nn.Sequential(
-            nn.Linear(config.hidden_size,
-                      config.hidden_size * 2),
+        ## for CLIP concatnated Classifier
+        self.head1_classifier = nn.Sequential(
+            nn.Linear(config.hidden_size * 2, config.hidden_size * 3),
+            nn.Linear(config.hidden_size * 3, config.hidden_size * 2),
             nn.ReLU(True),
             nn.Linear(config.hidden_size * 2, config.num_labels)
         )
-        self.head4_bias_correction = nn.Linear(config.num_labels, config.num_labels) #for bert language interacte with CLIP vit features
 
-        ##@ Adjust when needed
-        """Score Weights initilization"""
-        nn.init.eye_(self.bias_correction.weight)
-        nn.init.eye_(self.head2_bias_correction.weight)
-        nn.init.eye_(self.head3_bias_correction.weight)
-        init_modules(self.head4_classifier)
-        nn.init.eye_(self.head4_bias_correction.weight)
+        self.head3_classifier = nn.Sequential(
+            nn.Linear(config.hidden_size * 2, config.hidden_size * 3),
+            nn.Linear(config.hidden_size * 3, config.hidden_size * 2),
+            nn.ReLU(True),
+            nn.Linear(config.hidden_size * 2, config.num_labels)
+        )
 
+        ## Head4 Classifier and weights
+        self.head4_classifier = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size * 2),
+            nn.ReLU(True),
+            nn.Linear(config.hidden_size * 2, config.num_labels)
+        )
 
+        ##@ More Classifier may needed
+        
+        """Weights initilization"""
+        nn.init.xavier_uniform_(self.head1_fusion_weight.weight)
+        nn.init.eye_(self.head2_fusion_weight.weight)
+        nn.init.xavier_uniform_(self.head3_fusion_weight.weight)
+        nn.init.xavier_uniform_(self.head4_fusion_weight.weight)
+
+        init_modules(self.head1_classifier, w_init='xavier_uniform')
+        init_modules(self.head3_classifier, w_init='xavier_uniform')
+        init_modules(self.head4_classifier, w_init='xavier_uniform')
 
         """Original Weights"""
         ##@ Used in Validation
@@ -717,8 +730,6 @@ class AlproForSequenceClassification(AlproBaseModel):
         )
         """
 
-
-
         """Freezing weights"""
         for param in self.CLIP_encoder.parameters():
             param.requires_grad = False
@@ -730,11 +741,10 @@ class AlproForSequenceClassification(AlproBaseModel):
         ##@ finetune MM encoder 
         for param in self.text_encoder.encoder.layer[10:12].parameters():
             param.requires_grad = True
-    
         for param in self.head2_bias_correction.parameters():
             param.requires_grad = False
         
-        ## For later use
+        ## For later fusion with original stream
         """
         for param in self.origin_stream.parameters():
             param.requires_grad = False
@@ -768,91 +778,90 @@ class AlproForSequenceClassification(AlproBaseModel):
         """Extract CLIP Language features"""
         ## CLIP q_Captions
         batch_q_captions = batch['q_captions'] # (bz , config.num_labels) type: str
-        batch_captions_features = [] # (bz, 2423, 512) type: list of tensor
-        for q_captions in batch_q_captions :
-            captions_tokens = clip.tokenize(q_captions).to(device)
-            captions_features = self.CLIP_encoder.encode_text(captions_tokens).float()
-            captions_features /= captions_features.norm(dim=-1, keepdim=True)
-            batch_captions_features.append(captions_features)
+        ## using EOT tokens
+        batch_q_captions_tokens = clip.tokenize(batch_q_captions).to(device)
+        text_CLIP_feats = self.CLIP_encoder.encode_text_features(batch_q_captions_tokens).float() # should be ([bz, 512]) or ([bz, 768])
         
+        # TODO 
+        # print encoded text_CLIP_feats shape
+        print(text_CLIP_feats.shape)
+
+
         ## Visual features
         ## CLIP/Vit asks for (b * t, c, h, w) as input.
         ## Here only 1 frame is RANDOMLY picked
         ## @@ RANDOMLY -> 7th
 
-        """@If keyframe validation is used"""
-        ##@@@@@ do not use for this time
-        ##visual_inputs = visual_inputs.transpose(1, 2)[:, 7]
+        """@If keyframe validation is used: Used"""
+        ## visual_inputs = visual_inputs.transpose(1, 2)[:, 7]
         
         if self.training:
             visual_inputs = visual_inputs.transpose(1, 2)[:, 7]
         else:
             visual_inputs = batch["key_frames"] #(b, c, h, w)
         
+        ## using CLS tokens
+        image_CLIP_embeds = self.CLIP_encoder.encode_image_features(visual_inputs).float() 
+        image_CLIP_feats= image_CLIP_embeds[:, 0, :] # ([bz * 1, 512]) or ([bz * 1, 768])
 
-        image_CLIP_feats = self.CLIP_encoder.encode_image_features(visual_inputs)
-        image_CLIP_embeds = self.CLIP_encoder.forward_image_ln_trans_only(image_CLIP_feats).float() # ([bz * 1, 512]) float32
-        image_CLIP_embeds /= image_CLIP_embeds.norm(dim=-1, keepdim=True)
+        ## Head1
+        ## ----------------------------------------
+        ## concat and foward to linear to get score
+        CLIP_concated_feats = torch.cat([text_CLIP_feats, image_CLIP_feats], dim=1) #([bz, 1280]) or ([bz, 1536])
+        """@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            1. Using linear layer only
+            2. Using pre-trained multi-modal transformer 
+            3. Train a new multi-modal transformer
+        """
+        CLIP_target_probs = self.head1_classifier(CLIP_concated_feats) #([bz, num_labels])
 
-        ## 1 to 1 score and concat
-        CLIP_target_probs = []
-        for i in range(b):
-            CLIP_target_prob = (100.0 * image_CLIP_embeds[i] @ batch_captions_features[i].T).softmax(dim=-1).unsqueeze(0)
-            CLIP_target_probs.append(CLIP_target_prob)
-        CLIP_target_probs = torch.cat(CLIP_target_probs, dim=0)
 
-        """Forward to Multi-Modal encoder"""
+        ## Head2 MM encoder 
+        ## ----------------------------------------
         image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(device) # ([bz, 197]) long all 1
-
         # forward cross-encoder
         attention_mask = torch.cat([text_input_mask, image_atts], dim=1)
         embedding_output = torch.cat([text_embeds, image_embeds], dim=1) 
-
         output = self.text_encoder(encoder_embeds=embedding_output,
                                 attention_mask=attention_mask,
                                 return_dict=True,
                                 mode='fusion'
                                 )
-        
         prediction = self.classifier(output.last_hidden_state[:,0,:])
 
 
-        """Multi-Head architecture"""
+        ## Head3
+        ## ----------------------------------------
         ## TimeSformer vision features + CLIP language features Head
-        ##
-        head3_visual_embeds = self.CLIP_encoder.forward_image_ln_trans_only(image_embeds) # ([bz, 197, 768]) -> ([bz, 1, 768])/([bz, 768]) -> # ([bz, 512])
-        ## 1 to 1 score and concat
-        head3_CLIP_target_probs = []
-        for i in range(b):
-            head3_CLIP_target_prob = (100.0 * head3_visual_embeds[i] @ batch_captions_features[i].T).softmax(dim=-1).unsqueeze(0)
-            head3_CLIP_target_probs.append(head3_CLIP_target_prob)
-        head3_CLIP_target_probs = torch.cat(head3_CLIP_target_probs, dim=0)
+        head3_visual_feats = image_embeds[:, 0, :] # ([bz, 197, 768]) -> ([bz, 1, 768])/([bz, 768])
+        head3_CLIP_concated_feats = torch.cat([text_CLIP_feats, head3_visual_feats], dim=1)
+        head3_CLIP_target_probs = self.head3_classifier(head3_CLIP_concated_feats)
 
 
-        # VIT features + original language features Head
-        ##
-        # image_CLIP_feats # ([bz, sequence_length, 768])
-        image_CLIP_atts = torch.ones(image_CLIP_feats.size()[:-1],dtype=torch.long).to(device)
+        ## Head4
+        ## ----------------------------------------
+        ## VIT features + original language features Head
+        # image_CLIP_embeds # ([bz, sequence_length, 768])
+        image_CLIP_atts = torch.ones(image_CLIP_embeds.size()[:-1],dtype=torch.long).to(device)
         attention_CLIP_mask = torch.cat([text_input_mask, image_CLIP_atts], dim=1)
-        embedding_CLIP_output = torch.cat([text_embeds, image_CLIP_feats], dim=1)
+        embedding_CLIP_output = torch.cat([text_embeds, image_CLIP_embeds], dim=1)
         head4_output = self.text_encoder(encoder_embeds=embedding_CLIP_output,
                                 attention_mask=attention_CLIP_mask,
                                 return_dict=True,
                                 mode='fusion'
                                 )
+        head4_prediction = self.head4_classifier(head4_output.last_hidden_state[:,0,:])
 
 
         """Late score fusion"""
-        CLIP_target_probs = self.bias_correction(CLIP_target_probs)
-        ## Multiply weights and element wise add
-        prediction = self.head2_bias_correction(prediction)
-
-        head3 = self.head3_bias_correction(head3_CLIP_target_probs) * 0.05
-        head4 = self.head4_classifier(head4_output.last_hidden_state[:,0,:]) * 0.05
+        CLIP_target_probs = self.head1_fusion_weight(CLIP_target_probs)
+        prediction = self.head2_fusion_weight(prediction)
+        head3 = self.head3_fusion_weight(head3_CLIP_target_probs) * 0.05
+        head4 = self.head4_fusion_weight(head4_prediction) * 0.05
 
         prediction = prediction + CLIP_target_probs # + head3 + head4 # (bz , num_labels)
         
-        ##@ Used in Validation
+        ##@ Later Original Stream Used in Validation
         """weight adjuster"""
         """
         q_types = batch["q_type"]

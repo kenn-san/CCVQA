@@ -28,7 +28,7 @@
   "model_config": "config_release/base_model.json",
   "tokenizer_dir": "ext/bert-base-uncased/",
   "visual_model_cfg": "config_release/timesformer_divst_8x32_224_k600_gc.json",
-  "e2e_weights_path": "output/downstreams/msrvtt_qa/private/20220919CLIP2Stream7thFrameVTTtest-UsingFixedPretrained-2Head/ckpt/model_step_23750.pt",
+  "e2e_weights_path": "output/pretrain/alpro_pretrained_ckpt.pt",
   "num_frm": 16,
   "train_batch_size": 3,
   "val_batch_size": 3,
@@ -36,7 +36,7 @@
   "num_train_epochs": 10,
   "min_valid_steps": 50,
   "num_valid": 50,
-  "learning_rate": 1e-5,
+  "learning_rate": 5e-5,
   "weight_decay": 1e-3,
   "decay": "linear",
   "optim": "adamw",
@@ -50,6 +50,5 @@
   "cls_hidden_scale": 2,
   "task": "msrvtt_qa",
   "num_workers": 4,
-
   "key_frm_db_dir":"/temp/msrvtt_key_frames/msrvtt_val_key_frames"
 }

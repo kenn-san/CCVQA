@@ -3,12 +3,12 @@ cd ..
 export PYTHONPATH="$PYTHONPATH:$PWD"
 echo $PYTHONPATH
 
-STEP='best'
+STEP='26250'
 
 CONFIG_PATH='config_release/msrvtt_qa.json'
 
 TXT_DB='data/msrvtt_qa/txt/test.jsonl'
-IMG_DB='data/msrvtt_qa/videos'
+IMG_DB='/temp/MSRVTT/videos/all'
 
 horovodrun -np 1 python src/tasks/run_video_qa.py \
       --do_inference 1 \
@@ -17,5 +17,5 @@ horovodrun -np 1 python src/tasks/run_video_qa.py \
       --inference_txt_db $TXT_DB \
       --inference_img_db $IMG_DB \
       --inference_batch_size 64 \
-      --output_dir output/downstreams/msrvtt_qa/public \
+      --output_dir output/downstreams/msrvtt_qa/private/20220919CLIP2Stream7thFrameVTTtest-UsingFixedPretrained-2Head \
       --config $CONFIG_PATH

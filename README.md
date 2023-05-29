@@ -2,7 +2,7 @@
 
 ## VIDEO QUESTION ANSWERING USING CLIP-GUIDED VISUAL-TEXT ATTENTION [[Paper](https://arxiv.org/abs/2303.03131)]
 
-[Weikai Kong](https://github.com/WeikaiKong), [Shuhong Ye](https://github.com/kenn-san), [Chenglin Yao](https://www.researchgate.net/profile/Chenglin_Yao2), [Jianfeng Ren](https://research.nottingham.edu.cn/en/persons/jianfeng-ren), [Xudong Jiang](https://personal.ntu.edu.sg/exdjiang/)
+[Shuhong Ye](https://github.com/kenn-san), [Weikai Kong](https://github.com/WeikaiKong), [Chenglin Yao](https://www.researchgate.net/profile/Chenglin_Yao2), [Jianfeng Ren](https://research.nottingham.edu.cn/en/persons/jianfeng-ren), [Xudong Jiang](https://personal.ntu.edu.sg/exdjiang/)
 
 
 ## Requirements

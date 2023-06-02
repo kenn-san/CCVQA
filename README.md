@@ -16,14 +16,34 @@ cd env && bash install_pkg.sh
 
 ## Training
 
-Under Construction
+### Data Preparation 
+
+[MSRVTT, MSVD videos & annotations](https://www.mediafire.com/folder/h14iarbs62e7p/shared)
+
+[Download pre-trained checkpoint](https://storage.googleapis.com/sfr-vision-language-research/ALPRO/output.zip)
+
+Set dataset, and checkpoint paths in `config_release/msrvtt_qa.json` and  `config_release/msvd_qa.json`
+
+Run the finetuning scripts below:
+
+```bash
+cd run_scripts
+bash ft_msrvtt_qa.sh
+bash ft_msvd_qa.sh
+```
 
 ## Testing
 
-Under Construction
+Run the inference scripts below:
 
+```bash
+cd run_scripts
+bash inf_msrvtt_qa.sh
+bash inf_msvd_qa.sh
+```
 
 ## Citation
+
 ```bibtex
 @article{ye2023video,
   title={Video Question Answering Using CLIP-Guided Visual-Text Attention},
